@@ -1,10 +1,17 @@
-import time
-
 import pandas as pd
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 
-
-def read_processed_bundle_data(path: str, user: str, time: str, usecols: list = None, check_cols: list = None, sep=','):
+def read_processed_bundle_data(path: str,
+                               user: str,
+                               time: str,
+                               spare_features: list,
+                               dense_features: list,
+                               usecols: list = None,
+                               check_cols: list = None,
+                               sep=','):
     """
+    :param dense_features: 连续特征
+    :param spare_features: 类别特征
     :param path: data_path
     :param user: user_col_name
     :param time: time_col_name
@@ -22,6 +29,14 @@ def read_processed_bundle_data(path: str, user: str, time: str, usecols: list = 
         if null_num > 0:
             print("There are {} nulls in {}.".format(null_num, col))
             df = df[~df[col].isnull()]
+    df['register_time'] = pd.to_datetime(df["register_time"]).apply(lambda x: x.timestamp())
+
+    lbes = [LabelEncoder() for _ in range(len(spare_features))]
+    for i in range(len(spare_features)):
+        df[spare_features[i]] = lbes[i].fit_transform(df[spare_features[i]])
+    mms = MinMaxScaler(feature_range=(0, 1))
+    df[dense_features] = mms.fit_transform(df[dense_features])
+
     grouped = df.sort_values(by=[time]).groupby(user)
     return grouped
 
@@ -69,7 +84,6 @@ def split_train_test(df: pd.DataFrame, user: str, time: str):
 
 
 def gen_bundle_data():
-    cur = time.time()
     table_default_col = ['module_id_1', 'module_id_2', 'module_id_3', 'product_cnt'] + ['model_name']
     user_default_col = ['uid', 'register_country', 'register_time', 'is_visitor', 'register_device',
                         'register_device_brand', 'register_os', 'gender']
@@ -79,25 +93,37 @@ def gen_bundle_data():
                            'register_country_arpu', 'life_time', 'star', 'battle_pass_exp', 'is_up_to_date_version',
                            'pet_heart_stock', 'pet_exp_stock', 'friend_cnt', 'social_friend_cnt', 'pay_amt', 'pay_cnt',
                            'pay_per_day', 'pay_mean']
+    spare_features = ['uid', 'is_visitor', 'gender', 'impression_result', 'is_up_to_date_version',
+                      'register_country', 'register_device', 'register_device_brand', 'register_os',
+                      'bundle_id']
+    dense_features = ['register_time', 'bundle_price', 'island_no', 'spin_stock', 'coin_stock',
+                      'diamond_stock', 'island_complete_gap_coin', 'island_complete_gap_building_cnt',
+                      'tournament_rank', 'login_cnt_1d', 'ads_watch_cnt_1d', 'register_country_arpu',
+                      'life_time', 'star', 'battle_pass_exp', 'pet_heart_stock', 'pet_exp_stock', 'friend_cnt',
+                      'social_friend_cnt', 'pay_amt', 'pay_cnt', 'pay_per_day', 'pay_mean']
+
     grouped = read_processed_bundle_data(path="F:/brs_data/brs_daily_20211101_20211230.csv",
                                          user='uid',
                                          time='ftime',
+                                         spare_features=spare_features,
+                                         dense_features=dense_features,
                                          usecols=user_default_col + user_changeable_col,
                                          check_cols=['bundle_id'])
-    print(str(time.time() - cur) + "transfroming...")
+
     df = transform2sequences(grouped, user_default_col, user_changeable_col)
+
     sequence_length = 8
-    print(str(time.time() - cur) + "creating fixed sequences...")
     for col_name in user_changeable_col:
         df[col_name] = df[col_name].apply(lambda x: create_fixed_sequences(x, sequence_length=sequence_length))
-    df['register_time'] = pd.to_datetime(df["register_time"]).apply(lambda x: x.timestamp())
-    print(str(time.time() - cur) + "exploding...")
+
     df = df.explode(column=user_changeable_col, ignore_index=True)
+
     train, test = split_train_test(df, 'uid', 'ftime')
-    print(str(time.time() - cur) + "saving...")
     train.to_csv("bundle/train_data.csv", index=False, sep=',')
     test.to_csv("bundle/test_data.csv", index=False, sep=',')
 
 
 if __name__ == '__main__':
-    gen_bundle_data()
+    # gen_bundle_data()
+    df = pd.read_csv("bundle/test_data.csv", sep=',')
+    pass
