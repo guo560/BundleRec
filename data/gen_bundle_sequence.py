@@ -1,5 +1,8 @@
+import pickle
+
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
+
 
 def read_processed_bundle_data(path: str,
                                user: str,
@@ -29,13 +32,18 @@ def read_processed_bundle_data(path: str,
         if null_num > 0:
             print("There are {} nulls in {}.".format(null_num, col))
             df = df[~df[col].isnull()]
-    df['register_time'] = pd.to_datetime(df["register_time"]).apply(lambda x: x.timestamp())
+    print("buy:{}, unbuy:{}".format(df[df['impression_result'] == 1].shape[0], df[df['impression_result'] == 0].shape[0]))
+    df['register_time'] = pd.to_datetime(df["register_time"]).apply(lambda x: int(x.timestamp()))
 
     lbes = [LabelEncoder() for _ in range(len(spare_features))]
     for i in range(len(spare_features)):
         df[spare_features[i]] = lbes[i].fit_transform(df[spare_features[i]])
-    mms = MinMaxScaler(feature_range=(0, 1))
+    with open("bundle_time/lbes.pkl", 'wb') as file:
+        pickle.dump(lbes, file)
+    mms = MinMaxScaler()
     df[dense_features] = mms.fit_transform(df[dense_features])
+    with open("bundle_time/mms.pkl", 'wb') as file:
+        pickle.dump(mms, file)
 
     grouped = df.sort_values(by=[time]).groupby(user)
     return grouped
@@ -59,9 +67,9 @@ def transform2sequences(grouped, default_col, sequence_col):
 
 
 def create_fixed_sequences(values: list, sequence_length):
-    """padding with -1."""
+    """padding with 0."""
     sequences = []
-    seq = [-1 for _ in range(sequence_length)]
+    seq = [0 for _ in range(sequence_length)]
     for end_index in range(len(values)):
         valid_len = min(sequence_length, end_index + 1)
         seq[sequence_length - valid_len:sequence_length] = values[end_index + 1 - valid_len:end_index + 1]
@@ -69,7 +77,7 @@ def create_fixed_sequences(values: list, sequence_length):
     return sequences
 
 
-def split_train_test(df: pd.DataFrame, user: str, time: str):
+def split_train_test_by_user(df: pd.DataFrame, user: str, time: str):
     """
     Use last user record as test data.
     :param df:
@@ -80,6 +88,22 @@ def split_train_test(df: pd.DataFrame, user: str, time: str):
     grouped = df.sort_values(by=time).groupby(user)
     train = grouped.apply(lambda x: x[:-1])
     test = grouped.apply(lambda x: x[-1:])
+    return train, test
+
+
+def split_train_test_by_time(df: pd.DataFrame, user: str, time: str):
+    """
+    Use last user record as test data.
+    :param df:
+    :param user: user_col_name
+    :param time: time_col_name
+    :return: DataFrame
+    """
+    df = df.sort_values(by=time)
+    rows = df.shape[0]
+    th = int(rows * 0.8)
+    train = df[:th]
+    test = df[th:]
     return train, test
 
 
@@ -118,12 +142,11 @@ def gen_bundle_data():
 
     df = df.explode(column=user_changeable_col, ignore_index=True)
 
-    train, test = split_train_test(df, 'uid', 'ftime')
-    train.to_csv("bundle/train_data.csv", index=False, sep=',')
-    test.to_csv("bundle/test_data.csv", index=False, sep=',')
+    train, test = split_train_test_by_time(df, 'uid', 'ftime')
+    train.to_csv("bundle_time/train_data.csv", index=False, sep=',')
+    test.to_csv("bundle_time/test_data.csv", index=False, sep=',')
 
 
 if __name__ == '__main__':
-    # gen_bundle_data()
-    df = pd.read_csv("bundle/test_data.csv", sep=',')
+    gen_bundle_data()
     pass

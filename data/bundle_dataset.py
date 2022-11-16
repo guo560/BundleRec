@@ -25,13 +25,14 @@ class BundleDataset(Dataset):
         item = dict()
         for col_name in self.user_default_col:
             item[col_name] = data[col_name]
+        item['register_time'] = eval(item['register_time'])
         for col_name in self.user_changeable_col:
-            item[col_name] = eval(data[col_name])
+            item[col_name] = torch.FloatTensor(eval(data[col_name]))
         item[self.target_col] = eval(data[self.target_col])
         target = item[self.target_col][-1]
         return item, target
 
 
 if __name__ == '__main__':
-    bd = BundleDataset("bundle/train_data.csv")
+    bd = BundleDataset("bundle2_time/test_data.csv")
     print(next(iter(bd)))
