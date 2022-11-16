@@ -24,6 +24,24 @@ class PositionEmbedding(nn.Module):
         return self.pe(pos)
 
 
+class TimeEmbedding(nn.Module):
+    def __init__(self, max_len, d_model):
+        super(TimeEmbedding, self).__init__()
+        self.te = nn.Embedding(max_len, d_model)
+
+    def forward(self, timestamps):
+        """
+        :param timestamps: [batch_size, seq_len]
+        :return: [batch_size, seq_len, d_model]
+        """
+        timestamps = torch.div(timestamps, 3600, rounding_mode='floor')
+        seq_len = timestamps.shape[1]
+        cur_time = timestamps[:, -1]
+        delta_times = cur_time.repeat(seq_len, 1).transpose(0, 1) - timestamps
+        deltas = torch.log(delta_times + 1)
+        return self.te(torch.ceil(deltas))
+
+
 class BundleBST(pl.LightningModule):
     def __init__(self, args=None):
         super().__init__()
@@ -60,8 +78,8 @@ class BundleBST(pl.LightningModule):
             self.embedding_dict[self.spare_features[i]] = nn.Embedding(
                 self.lbes[i].classes_.size + 1, int(math.sqrt(self.lbes[i].classes_.size)), padding_idx=-1
             )
-        self.position_embedding = PositionEmbedding(8, 26)
-        self.transformerlayer = nn.TransformerEncoderLayer(26, 1)  # TODO: 为什么d_model必须要整除num_heads
+        self.time_embedding = TimeEmbedding(100, 26)
+        self.transformerlayer = nn.TransformerEncoderLayer(26, 2)  # TODO: 为什么d_model必须要整除num_heads
         self.linear = nn.Sequential(
             nn.Linear(
                 727,
@@ -98,12 +116,12 @@ class BundleBST(pl.LightningModule):
                                 else torch.unsqueeze(item[col], dim=2)
                                 for col in self.user_changeable_col]
         transformer_features = torch.cat(transformer_features, dim=2)
-        return user_features, transformer_features, target
+        return user_features, transformer_features, item['ftime'], target
 
     def forward(self, batch):
-        user_features, transformer_features, target = self.encode_input(batch)
-        position_embedding = self.position_embedding(transformer_features)  # TODO: position encoding
-        transformer_features = transformer_features + position_embedding
+        user_features, transformer_features, timestamps, target = self.encode_input(batch)
+        time_embeddings = self.time_embedding(timestamps)  # TODO: position encoding
+        transformer_features = transformer_features + time_embeddings
         transformer_output = self.transformerlayer(transformer_features)
         transformer_output = torch.flatten(transformer_output, start_dim=1)
 
