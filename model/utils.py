@@ -10,7 +10,10 @@ def get_best_confusion_matrix(y_true, y_pre):
     index = np.argmax(gmean)
     best_threshold = round(thresholds[index], ndigits=4)
     martrix = confusion_matrix(y_true, y_pre >= best_threshold)
-    tn, fp, fn, tp = martrix.ravel()
+    try:
+        tn, fp, fn, tp = martrix.ravel()
+    except:
+        tn, fp, fn, tp = 0, 0, 0, martrix[0][0]
     recall = tp / (tp + fn)
     precision = tp / (tp + fp)
     acc = (tp + tn) / (tn + fp + fn + tp)
