@@ -8,8 +8,6 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader
 from pytorch_lightning.loggers import TensorBoardLogger
-from multiprocessing.pool import Pool
-from multiprocessing import Manager
 from argparse import ArgumentParser
 from data.bundle_dataset import BundleDataset
 from model.BST import BST
@@ -55,7 +53,7 @@ def bundle_main(args, v_num, train_dataset, test_dataset):
                          callbacks=[callback],
                          # auto_scale_batch_size='binsearch',
                          # auto_lr_find=True,
-                         val_check_interval=0.5,
+                         val_check_interval=0.25,
                          max_epochs=args.max_epochs,
                          logger=logger,
                          log_every_n_steps=50,
@@ -63,6 +61,7 @@ def bundle_main(args, v_num, train_dataset, test_dataset):
                          fast_dev_run=False,
                          enable_progress_bar=True)
     model.to('cuda')
+    logger.log_hyperparams(model.hparams, {"val_auc": 0.0})
     trainer.fit(model=model,
                 train_dataloaders=DataLoader(train_dataset,
                                              batch_size=args.batch_size,
