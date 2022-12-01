@@ -22,9 +22,10 @@ class PositionEmbedding(nn.Module):
 
 
 class TimeEmbedding(nn.Module):
-    def __init__(self, max_len, d_model):
+    def __init__(self, max_len, d_model, log_base):
         super(TimeEmbedding, self).__init__()
         self.te = nn.Embedding(max_len, d_model)
+        self.log_base = log_base
 
     def forward(self, timestamps):
         """
@@ -36,6 +37,7 @@ class TimeEmbedding(nn.Module):
         cur_time = timestamps[:, -1]
         delta_times = cur_time.repeat(seq_len, 1).transpose(0, 1) - timestamps
         deltas = torch.log(delta_times + 1)
+        deltas = torch.div(deltas, math.log(self.log_base))
         return self.te(torch.ceil(deltas).long())
 
 
@@ -68,7 +70,7 @@ class BST(pl.LightningModule):
             )
         self.d_transformer = sum([self.embedding_dict[col].embedding_dim if col in spare_features else 1 for col in transformer_col])
         self.d_dnn = sum([self.embedding_dict[col].embedding_dim if col in spare_features else 1 for col in dnn_col])
-        self.time_embedding = TimeEmbedding(100, self.d_transformer)
+        self.time_embedding = TimeEmbedding(100, self.d_transformer, self.hparams.log_base)
         self.position_embedding = PositionEmbedding(8, self.d_transformer)
         self.transformerlayers = nn.ModuleList(
             [nn.TransformerEncoderLayer(self.d_transformer, self.hparams.num_head, batch_first=True).to(self.device) for _ in range(self.hparams.transformer_num)]
