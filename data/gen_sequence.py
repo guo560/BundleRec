@@ -5,7 +5,7 @@ import time
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from tqdm import tqdm
 
 
@@ -84,7 +84,7 @@ def create_fixed_sequences(values: list, sequence_length):
     return sequences
 
 
-def split_train_test_by_user(df: pd.DataFrame, user: str, time: str):
+def split_train_val_test_by_user(df: pd.DataFrame, user: str, time: str):
     """
     Use last user record as test data.
     :param df:
@@ -93,32 +93,35 @@ def split_train_test_by_user(df: pd.DataFrame, user: str, time: str):
     :return: DataFrame
     """
     grouped = df.sort_values(by=time).groupby(user)
-    train = grouped.apply(lambda x: x[:-1])
+    # 过滤用户行为数量小于等于3的用户
+    grouped = grouped.filter(lambda x: x.shape[0] > 2)
+    train = grouped.apply(lambda x: x[: -2])
+    val = grouped.apply(lambda x: x[-2: -1])
     test = grouped.apply(lambda x: x[-1:])
-    return train, test
+    return train, val, test
 
 
-def split_train_test_by_time(df: pd.DataFrame, user: str, time: str):
+def split_train_val_test_by_time(df: pd.DataFrame, time: str):
     """
     Use last user record as test data.
     :param df:
-    :param user: user_col_name
     :param time: time_col_name
     :return: DataFrame
     """
     df = df.sort_values(by=time)
     rows = df.shape[0]
     th = int(rows * 0.8)
+    th2 = int(rows * 0.9)
     train = df[:th]
-    test = df[th:]
-    return train, test
+    val = df[th:th2]
+    test = df[th2:]
+    return train, val, test
 
 
 def gen_bundle_data():
-    path = "./bundle_time/"
+    path = "./bundle_time_split_by_user/"
     if not os.path.exists(path):
         os.mkdir(path)
-    table_default_col = ['module_id_1', 'module_id_2', 'module_id_3', 'product_cnt'] + ['model_name']
     user_default_col = ['uid', 'register_country', 'register_time', 'is_visitor', 'register_device',
                         'register_device_brand', 'register_os', 'gender']
     user_changeable_col = ['ftime', 'bundle_id', 'bundle_price', 'impression_result', 'island_no', 'spin_stock',
@@ -152,8 +155,9 @@ def gen_bundle_data():
 
     df = df.explode(column=user_changeable_col, ignore_index=True)
 
-    train, test = split_train_test_by_time(df, 'uid', 'ftime')
+    train, val, test = split_train_val_test_by_user(df, 'uid', 'ftime')
     train.to_csv(path+"train_data.csv", index=False, sep=',')
+    val.to_csv(path+"val_data.csv", index=False, sep=',')
     test.to_csv(path+"test_data.csv", index=False, sep=',')
 
 
@@ -190,6 +194,15 @@ def reduce_mem(df):
     return df
 
 
+def plot_user_click_count_his(path: str, user: str):
+    df = pd.read_csv(path)
+    grouped = df.groupby(user)
+    shapes = grouped.apply(lambda x: x.shape[0])
+    from matplotlib import pyplot as plt
+    plt.hist(shapes.values, bins='auto', edgecolor="r", histtype="step")
+    plt.show()
+
+
 if __name__ == '__main__':
     gen_bundle_data()
-    pass
+

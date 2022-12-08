@@ -70,8 +70,11 @@ class BST(pl.LightningModule):
             )
         self.d_transformer = sum([self.embedding_dict[col].embedding_dim if col in spare_features else 1 for col in transformer_col])
         self.d_dnn = sum([self.embedding_dict[col].embedding_dim if col in spare_features else 1 for col in dnn_col])
-        self.time_embedding = TimeEmbedding(100, self.d_transformer, self.hparams.log_base)
-        self.position_embedding = PositionEmbedding(8, self.d_transformer)
+        if self.hparams.use_time:
+            self.time_embedding = TimeEmbedding(50, self.d_transformer, self.hparams.log_base)
+        else:
+            self.position_embedding = PositionEmbedding(8, self.d_transformer)
+
         self.transformerlayers = nn.ModuleList(
             [nn.TransformerEncoderLayer(self.d_transformer, self.hparams.num_head, batch_first=True).to(self.device) for _ in range(self.hparams.transformer_num)]
         )  # TODO: 为什么d_model必须要整除num_heads
@@ -87,6 +90,10 @@ class BST(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(256, 2),
         ).to(self.device)
+        for name, tensor in self.linear.named_parameters():
+            if 'weight' in name:
+                nn.init.normal_(tensor, mean=0.0, std=0.0001)
+
         self.criterion = nn.CrossEntropyLoss().to(self.device)
         self.softmax_func = nn.Softmax(dim=1).to(self.device)
         self.auc = torchmetrics.AUROC(num_classes=2).to(self.device)
@@ -165,6 +172,23 @@ class BST(pl.LightningModule):
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
         self.log("val/auc", auc, on_step=False, on_epoch=True, prog_bar=False)
         self.log_dict({f"val/{k}": v for k, v in metrics.items()}, on_step=False, on_epoch=True, prog_bar=False)
+
+    def test_step(self, batch, batch_idx):
+        output, target = self(batch)
+        return {"y_pre": output, "y": target}
+
+    def test_epoch_end(self, outputs):
+        y_pre = torch.cat([x["y_pre"] for x in outputs])
+        y = torch.cat([x["y"] for x in outputs])
+        loss = self.criterion(y_pre, y)
+        auc = self.auc(self.softmax_func(y_pre), y)
+
+        matrix, metrics = get_best_confusion_matrix(y.cpu(), self.softmax_func(y_pre)[:, 1].cpu())
+        # self.print(matrix)
+        result = {"test/log_loss": loss,
+                  "test/auc": auc,
+                  **{f"test/{k}": v for k, v in metrics.items()}}
+        self.logger.log_hyperparams(self.hparams, metrics=result)
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
