@@ -42,9 +42,9 @@ def read_processed_bundle_data(path: str,
     df['register_time'] = pd.to_datetime(df["register_time"]).apply(lambda x: int(x.timestamp()))
     df = reduce_mem(df)
 
-    lbes = [LabelEncoder() for _ in range(len(spare_features))]
-    for i in range(len(spare_features)):
-        df[spare_features[i]] = lbes[i].fit_transform(df[spare_features[i]])
+    lbes = {feature: LabelEncoder() for feature in spare_features}
+    for feature in spare_features:
+        df[feature] = lbes[feature].fit_transform(df[feature])
     with open(to_path+"lbes.pkl", 'wb') as file:
         pickle.dump(lbes, file)
     mms = MinMaxScaler()
@@ -63,6 +63,7 @@ def transform2sequences(grouped, default_col, sequence_col):
     :param sequence_col: columns needed to generate sequences.
     :return: DataFrame
     """
+    # TODO: to be updated
     df = pd.DataFrame(
         data={
             "uid": list(grouped.groups.keys()),
@@ -74,12 +75,10 @@ def transform2sequences(grouped, default_col, sequence_col):
 
 
 def create_fixed_sequences(values: list, sequence_length):
-    """padding with -1."""
     sequences = []
-    seq = [-1 for _ in range(sequence_length)]
     for end_index in range(len(values)):
         valid_len = min(sequence_length, end_index + 1)
-        seq[sequence_length - valid_len:sequence_length] = values[end_index + 1 - valid_len:end_index + 1]
+        seq = values[end_index + 1 - valid_len:end_index + 1]
         sequences.append(seq.copy())
     return sequences
 
@@ -101,14 +100,16 @@ def split_train_val_test_by_user(df: pd.DataFrame, user: str, time: str):
     return train, val, test
 
 
-def split_train_val_test_by_time(df: pd.DataFrame, time: str):
+def split_train_val_test_by_time(df: pd.DataFrame, user: str, time: str):
     """
     Use last user record as test data.
-    :param df:
+    :param df:.
+    :param user: user_col_name
     :param time: time_col_name
     :return: DataFrame
     """
     df = df.sort_values(by=time)
+    df.drop(time, axis=1, inplace=True)
     rows = df.shape[0]
     th = int(rows * 0.8)
     th2 = int(rows * 0.9)
@@ -119,7 +120,7 @@ def split_train_val_test_by_time(df: pd.DataFrame, time: str):
 
 
 def gen_bundle_data():
-    path = "./bundle_time_split_by_user/"
+    path = "./bundle_new_time/"
     if not os.path.exists(path):
         os.mkdir(path)
     user_default_col = ['uid', 'register_country', 'register_time', 'is_visitor', 'register_device',
@@ -154,11 +155,12 @@ def gen_bundle_data():
         df[col_name] = df[col_name].apply(lambda x: create_fixed_sequences(x, sequence_length=sequence_length))
 
     df = df.explode(column=user_changeable_col, ignore_index=True)
-
-    train, val, test = split_train_val_test_by_user(df, 'uid', 'ftime')
+    df['cur_time'] = df['ftime'].apply(lambda x: x[-1])
+    train, val, test = split_train_val_test_by_time(df, 'uid', 'cur_time')
     train.to_csv(path+"train_data.csv", index=False, sep=',')
     val.to_csv(path+"val_data.csv", index=False, sep=',')
     test.to_csv(path+"test_data.csv", index=False, sep=',')
+    print("Done")
 
 
 def reduce_mem(df):

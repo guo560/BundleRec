@@ -34,7 +34,7 @@ class TimeEmbedding(nn.Module):
         """
         timestamps = torch.div(timestamps, 3600, rounding_mode='floor')
         seq_len = timestamps.shape[1]
-        cur_time = timestamps[:, -1]
+        cur_time = timestamps.min(dim=1)[0]
         delta_times = cur_time.repeat(seq_len, 1).transpose(0, 1) - timestamps
         deltas = torch.log(delta_times + 1)
         deltas = torch.div(deltas, math.log(self.log_base))
@@ -42,8 +42,7 @@ class TimeEmbedding(nn.Module):
 
 
 class BST(pl.LightningModule):
-    def __init__(self, spare_features, dense_features, dnn_col, transformer_col, target_col, time_col,
-                 seq_len, args):
+    def __init__(self, spare_features, dense_features, dnn_col, transformer_col, target_col, time_col, args):
         super().__init__()
         super(BST, self).__init__()
 
@@ -53,7 +52,6 @@ class BST(pl.LightningModule):
         self.transformer_col = transformer_col
         self.target_col = target_col
         self.time_col = time_col
-        self.seq_len = seq_len
         self.save_hyperparameters(args, logger=False)
 
         with open(os.path.join(self.hparams.data_path, "lbes.pkl"), 'rb') as file:
@@ -62,10 +60,10 @@ class BST(pl.LightningModule):
             self.mms = pickle.load(file)
 
         self.embedding_dict = nn.ModuleDict()
-        for i in range(len(self.spare_features)):
-            self.embedding_dict[self.spare_features[i]] = nn.Embedding(
-                self.lbes[i].classes_.size + 1,
-                int(math.sqrt(self.lbes[i].classes_.size)) if self.hparams.embedding == -1 else self.hparams.embedding,
+        for feature in self.spare_features:
+            self.embedding_dict[feature] = nn.Embedding(
+                self.lbes[feature].classes_.size + 1,
+                int(math.sqrt(self.lbes[feature].classes_.size)) if self.hparams.embedding == -1 else self.hparams.embedding,
                 padding_idx=-1
             )
         self.d_transformer = sum([self.embedding_dict[col].embedding_dim if col in spare_features else 1 for col in transformer_col])
@@ -73,14 +71,14 @@ class BST(pl.LightningModule):
         if self.hparams.use_time:
             self.time_embedding = TimeEmbedding(50, self.d_transformer, self.hparams.log_base)
         else:
-            self.position_embedding = PositionEmbedding(8, self.d_transformer)
+            self.position_embedding = PositionEmbedding(args.max_len, self.d_transformer)
 
         self.transformerlayers = nn.ModuleList(
             [nn.TransformerEncoderLayer(self.d_transformer, self.hparams.num_head, batch_first=True).to(self.device) for _ in range(self.hparams.transformer_num)]
         )  # TODO: 为什么d_model必须要整除num_heads
         self.linear = nn.Sequential(
             nn.Linear(
-                self.d_dnn + self.d_transformer * seq_len,
+                self.d_dnn + self.d_transformer * args.max_len,
                 1024,
             ),
             nn.LeakyReLU(),
@@ -101,7 +99,7 @@ class BST(pl.LightningModule):
     def padding(self, item, padding_num: int):
         for col in self.transformer_col:
             if col in self.spare_features:
-                item[col] = torch.where(item[col] == padding_num, self.lbes[self.spare_features.index(col)].classes_.size, item[col])
+                item[col] = torch.where(item[col] == padding_num, self.lbes[col].classes_.size, item[col])
             else:
                 item[col] = torch.where(item[col] == padding_num, 0, item[col])
         return item

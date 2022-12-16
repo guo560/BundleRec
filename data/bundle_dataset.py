@@ -4,7 +4,7 @@ import numpy as np
 
 
 class BundleDataset(Dataset):
-    def __init__(self, data_path, test=False):
+    def __init__(self, data_path, max_len, test=False):
         self.df = pd.read_csv(data_path, decimal=',')
         print(f"loaded {data_path}")
         self.test = test
@@ -19,8 +19,9 @@ class BundleDataset(Dataset):
         target_col = ['impression_result']
 
         def str2ndarray(x: str):
-            seq = np.zeros(8, dtype=np.float32)
-            seq[:] = x[1:-1].split(",")
+            x = x[1:-1].split(",")
+            seq = np.full(max_len, -1, dtype=np.float32)
+            seq[-len(x):] = x
             return seq
 
         for col_name in user_changeable_col:
@@ -38,9 +39,9 @@ class BundleDataset(Dataset):
 
 
 if __name__ == '__main__':
-    bd = BundleDataset("bundle_time/test_data.csv")
-    dl = DataLoader(bd, batch_size=2, shuffle=False, num_workers=2)
+    bd = BundleDataset("bundle_new_time/train_data.csv", 8)
+    dl = DataLoader(bd, batch_size=512, shuffle=False, num_workers=0)
     sampler = next(iter(bd))
     sampler2 = next(iter(dl))
-    # for sampler2 in dl:
-    #     print(sampler2)
+    for sampler2 in dl:
+        print(sampler2)
