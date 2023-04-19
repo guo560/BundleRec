@@ -1,11 +1,11 @@
 import math
 import torch
-import os, platform, pickle
-import torch.utils.data as data
+import os, pickle
 import pytorch_lightning as pl
 import torchmetrics
 from .utils import get_best_confusion_matrix
 from torch import nn
+from .interacting_layer import InteractingLayer
 
 
 class PositionEmbedding(nn.Module):
@@ -24,7 +24,7 @@ class PositionEmbedding(nn.Module):
 class TimeEmbedding(nn.Module):
     def __init__(self, max_len, d_model, log_base):
         super(TimeEmbedding, self).__init__()
-        self.te = nn.Embedding(max_len, d_model)
+        self.te = nn.Embedding(2001 if log_base == -2 else max_len, d_model, padding_idx=-1)
         self.log_base = log_base
 
     def forward(self, timestamps):
@@ -33,12 +33,33 @@ class TimeEmbedding(nn.Module):
         :return: [batch_size, seq_len, d_model]
         """
         timestamps = torch.div(timestamps, 3600, rounding_mode='floor')
+
+        # timestamps为实际时间时使用(电影、九九、淘宝数据集中使用)
         seq_len = timestamps.shape[1]
-        cur_time = timestamps.min(dim=1)[0]
+        cur_time = timestamps.max(dim=1)[0]
         delta_times = cur_time.repeat(seq_len, 1).transpose(0, 1) - timestamps
+
+        # timestamps为时间差时使用(饿了么数据集中使用)
+        # delta_times = timestamps
+
+        if self.log_base == -2:
+            # 线性时间-位置转换函数
+            delta_times = torch.where(delta_times > 2000, 2000, delta_times)
+            delta_times = torch.where(delta_times == -1, 2000, delta_times)
+            return self.te(delta_times.long())
+
         deltas = torch.log(delta_times + 1)
-        deltas = torch.div(deltas, math.log(self.log_base))
-        return self.te(torch.ceil(deltas).long())
+
+        if self.log_base == -1:
+            seq_len = timestamps.shape[1]
+            log_bases = (torch.where(delta_times <= 0, torch.inf, delta_times)).min(dim=1)[0]
+            log_bases = torch.where(log_bases == torch.inf, 1, log_bases) + 1
+            bases = torch.log(log_bases).repeat(seq_len, 1).transpose(0, 1)
+            deltas = torch.div(deltas, bases)
+        else:
+            deltas = torch.div(deltas, math.log(self.log_base))
+        deltas = torch.ceil(deltas).long()
+        return self.te(deltas)
 
 
 class BST(pl.LightningModule):
@@ -66,16 +87,35 @@ class BST(pl.LightningModule):
                 int(math.sqrt(self.lbes[feature].classes_.size)) if self.hparams.embedding == -1 else self.hparams.embedding,
                 padding_idx=-1
             )
-        self.d_transformer = sum([self.embedding_dict[col].embedding_dim if col in spare_features else 1 for col in transformer_col])
+        if self.hparams.use_int:
+            self.d_transformer = sum([self.embedding_dict[col].embedding_dim
+                                      if col in spare_features
+                                      else self.hparams.embedding
+                                      for col in transformer_col])
+            self.dense_embedding_col = list(set(transformer_col) & set(dense_features))
+            self.dense_embedding_dict = nn.ModuleDict()
+            for feature in self.dense_embedding_col:
+                self.dense_embedding_dict[feature] = nn.Embedding(1, self.hparams.embedding)
+        else:
+            self.d_transformer = sum([self.embedding_dict[col].embedding_dim
+                                      if col in spare_features
+                                      else 1
+                                      for col in transformer_col])
         self.d_dnn = sum([self.embedding_dict[col].embedding_dim if col in spare_features else 1 for col in dnn_col])
         if self.hparams.use_time:
             self.time_embedding = TimeEmbedding(50, self.d_transformer, self.hparams.log_base)
         else:
             self.position_embedding = PositionEmbedding(args.max_len, self.d_transformer)
 
+        if self.hparams.use_int:
+            self.int_layers = nn.ModuleList(
+                [InteractingLayer(self.hparams.embedding, 1, device=self.device, use_res=(self.hparams.int_num > 0))
+                 for _ in range(abs(self.hparams.int_num))]
+            )
+
         self.transformerlayers = nn.ModuleList(
             [nn.TransformerEncoderLayer(self.d_transformer, self.hparams.num_head, batch_first=True).to(self.device) for _ in range(self.hparams.transformer_num)]
-        )  # TODO: 为什么d_model必须要整除num_heads
+        )
         self.linear = nn.Sequential(
             nn.Linear(
                 self.d_dnn + self.d_transformer * args.max_len,
@@ -119,6 +159,9 @@ class BST(pl.LightningModule):
             item[col] = self.embedding_dict[col](item[col].long())
         for col in self.dense_features:
             item[col] = item[col].float().unsqueeze(dim=-1)
+        if self.hparams.use_int:
+            for col in self.dense_embedding_col:
+                item[col] = item[col] * self.dense_embedding_dict[col].weight[0]
         dnn_input = torch.cat([item[col] for col in self.dnn_col], dim=-1)
         transformer_input = torch.cat([item[col] for col in self.transformer_col], dim=-1)
         return dnn_input, transformer_input, item[self.time_col], target, mask
@@ -126,8 +169,20 @@ class BST(pl.LightningModule):
     def forward(self, batch):
         dnn_input, transformer_input, timestamp, target, mask = self.encode_input(batch)
 
+        if self.hparams.use_int:
+            batch_size, seq_len, total_dim = transformer_input.shape
+            embedding_dim = self.hparams.embedding
+            assert total_dim % embedding_dim == 0
+            transformer_input = transformer_input.view((batch_size * seq_len, total_dim // embedding_dim, embedding_dim))
+            for layer in self.int_layers:
+                transformer_input = layer(transformer_input)
+            transformer_input = transformer_input.view((batch_size, seq_len, total_dim))
+
         if self.hparams.use_time:
-            transformer_output = transformer_input + self.time_embedding(timestamp)
+            if self.hparams.log_base == -3:
+                transformer_output = transformer_input
+            else:
+                transformer_output = transformer_input + self.time_embedding(timestamp)
         else:
             transformer_output = transformer_input + self.position_embedding(transformer_input)
 

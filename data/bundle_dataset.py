@@ -5,7 +5,7 @@ import numpy as np
 
 class BundleDataset(Dataset):
     def __init__(self, data_path, max_len, test=False):
-        self.df = pd.read_csv(data_path, decimal=',')
+        self.df = pd.read_csv(data_path, decimal=',', nrows=None)
         print(f"loaded {data_path}")
         self.test = test
         user_default_col = ['uid', 'register_country', 'register_time', 'is_visitor', 'register_device',

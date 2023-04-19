@@ -22,7 +22,7 @@ def gen_ele_data():
 
             'times', 'hours', 'time_type', 'weekdays', 'geohash12']
 
-    spare_features = ['user_id', 'gender', 'visit_city', 'is_super_vip',
+    sparse_features = ['user_id', 'gender', 'visit_city', 'is_super_vip',
 
                       'shop_id', 'item_id', 'city_id', 'district_id', 'shop_aoi_id', 'shop_geohash_6', 'shop_geohash_12',
                       'brand_id', 'category_1_id', 'merge_standard_food_id', 'hours', 'time_type', 'weekdays', 'geohash12']
@@ -45,10 +45,10 @@ def gen_ele_data():
     with open(path+"mms.pkl", 'wb') as file:
         pickle.dump(mms, file)
 
-    lbes = {feature: LabelEncoder() for feature in spare_features }
+    lbes = {feature: LabelEncoder() for feature in sparse_features }
     df.reset_index(inplace=True)
     df['index'] = df.index
-    for feature in spare_features:
+    for feature in sparse_features:
         if df[feature].dtype != np.dtype('O'):
             df[feature] = df[feature].apply(lambda x: str(int(x)))
         feature_list = feature + '_list'

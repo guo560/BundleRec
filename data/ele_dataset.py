@@ -12,7 +12,7 @@ class EleDataset(Dataset):
                            'brand_id_list', 'shop_aoi_id_list', 'shop_geohash_6_list', 'timediff_list', 'hours_list',
                            'time_type_list', 'weekdays_list']
         target_col = ['label']
-        self.df = pd.read_csv(data_path, sep=',', usecols=dnn_col + transformer_col + target_col)
+        self.df = pd.read_csv(data_path, sep=',', usecols=dnn_col + transformer_col + target_col, nrows=None)
         print(f"loaded {data_path}")
         self.test = test
 
@@ -33,3 +33,8 @@ class EleDataset(Dataset):
     def __getitem__(self, index):
         data = self.df.iloc[index]
         return data.to_dict()
+
+
+if __name__ == '__main__':
+    bd = EleDataset("ele_time/train_data.csv", 51)
+    pass

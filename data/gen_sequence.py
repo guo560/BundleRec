@@ -120,7 +120,7 @@ def split_train_val_test_by_time(df: pd.DataFrame, user: str, time: str):
 
 
 def gen_bundle_data():
-    path = "./bundle_new_time/"
+    path = "./bundle_time20/"
     if not os.path.exists(path):
         os.mkdir(path)
     user_default_col = ['uid', 'register_country', 'register_time', 'is_visitor', 'register_device',
