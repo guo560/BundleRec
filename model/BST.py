@@ -179,10 +179,7 @@ class BST(pl.LightningModule):
             transformer_input = transformer_input.view((batch_size, seq_len, total_dim))
 
         if self.hparams.use_time:
-            if self.hparams.log_base == -3:
-                transformer_output = transformer_input
-            else:
-                transformer_output = transformer_input + self.time_embedding(timestamp)
+            transformer_output = transformer_input + self.time_embedding(timestamp)
         else:
             transformer_output = transformer_input + self.position_embedding(transformer_input)
 

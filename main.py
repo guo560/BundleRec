@@ -281,16 +281,16 @@ def run_bundle_main():
     parser = ArgumentParser()
     parser.add_argument('--batch_size', default=512, type=int)
     parser.add_argument('--lr', default=1e-4, type=float)
-    parser.add_argument('--use_time', default=True, type=bool)
-    parser.add_argument('--use_int', default=True, type=bool)
-    parser.add_argument('--int_num', default=2, type=int)
-    parser.add_argument('--log_base', default=10, type=float)
-    parser.add_argument("--transformer_num", default=2)
-    parser.add_argument("--embedding", default=8)
-    parser.add_argument("--num_head", default=8)
+    parser.add_argument('--use_time', default=True, type=bool)  # True表示使用时间信息，否则使用位置嵌入
+    parser.add_argument('--use_int', default=True, type=bool)  # 是否使用特征交互层
+    parser.add_argument('--int_num', default=2, type=int)  # 使用特征交互层的层数
+    parser.add_argument('--log_base', default=10, type=float)  # log_base>1时表示对数时间函数的底数，log_base=-1时表示使用动态底数，log_base=-2时表示使用线性时间函数
+    parser.add_argument("--transformer_num", default=2)  # transformer层的层数
+    parser.add_argument("--embedding", default=8)  # 类别特征的embedding向量维度
+    parser.add_argument("--num_head", default=8)  # transformer层中多头自注意力的头数
     parser.add_argument('--seed', default=2022, type=int)
     parser.add_argument('--data_path', default="./data/bundle_time", type=str)
-    parser.add_argument('--max_len', default=8, type=int)
+    parser.add_argument('--max_len', default=8, type=int)  # 最长序列长度
     parser.set_defaults(max_epochs=50)
     args = parser.parse_args()
 
