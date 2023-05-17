@@ -3,6 +3,9 @@ import torch
 import os, pickle
 import pytorch_lightning as pl
 import torchmetrics
+from torch.nn import TransformerEncoderLayer
+
+from .TimeAwareTransformerEncoderLayer import TimeAwareTransformerEncoderLayer
 from .utils import get_best_confusion_matrix
 from torch import nn
 from .interacting_layer import InteractingLayer
@@ -113,9 +116,18 @@ class BST(pl.LightningModule):
                  for _ in range(abs(self.hparams.int_num))]
             )
 
-        self.transformerlayers = nn.ModuleList(
-            [nn.TransformerEncoderLayer(self.d_transformer, self.hparams.num_head, batch_first=True).to(self.device) for _ in range(self.hparams.transformer_num)]
-        )
+        if self.hparams.time_aware:
+            self.time_matrix_K_emb = torch.nn.Embedding(2400 + 1, self.d_transformer)
+            self.time_matrix_V_emb = torch.nn.Embedding(2400 + 1, self.d_transformer)
+            self.transformerlayers = nn.ModuleList(
+                [TimeAwareTransformerEncoderLayer(self.d_transformer, self.hparams.num_head, batch_first=True, device=self.device)
+                 for _ in range(self.hparams.transformer_num)]
+            )
+        else:
+            self.transformerlayers = nn.ModuleList(
+                [TransformerEncoderLayer(self.d_transformer, self.hparams.num_head, batch_first=True, device=self.device)
+                 for _ in range(self.hparams.transformer_num)]
+            )
         self.linear = nn.Sequential(
             nn.Linear(
                 self.d_dnn + self.d_transformer * args.max_len,
@@ -183,8 +195,30 @@ class BST(pl.LightningModule):
         else:
             transformer_output = transformer_input + self.position_embedding(transformer_input)
 
-        for i in range(len(self.transformerlayers)):
-            transformer_output = self.transformerlayers[i](transformer_output, src_key_padding_mask=mask)
+        if self.hparams.time_aware:
+            timestamp = torch.div(timestamp, 3600, rounding_mode='floor')
+            if "ele" not in self.hparams.data_path:
+                seq_len = timestamp.shape[1]
+                cur_time = timestamp.max(dim=1)[0]
+                delta_time = cur_time.repeat(seq_len, 1).transpose(0, 1) - timestamp
+            else:
+                delta_time = timestamp
+            def time2feat(delta_time: torch.Tensor):
+                delta_time = torch.div(delta_time.transpose(0,1), (torch.where(delta_time <= 0, torch.inf, delta_time)).min(dim=1)[0]).transpose(0,1).long()
+                batch_size, seq_len = delta_time.shape
+                relation_matrix = delta_time.unsqueeze(2).repeat(1, 1, seq_len) - delta_time.unsqueeze(1).repeat(1, seq_len, 1)
+                relation_matrix = torch.abs(relation_matrix)
+                relation_matrix = torch.where(relation_matrix <= 2400, relation_matrix, 2400)
+                return relation_matrix
+            relation_matrix = time2feat(delta_time)
+            time_matrix_K = self.time_matrix_K_emb(relation_matrix)
+            time_matrix_V = self.time_matrix_V_emb(relation_matrix)
+
+            for i in range(len(self.transformerlayers)):
+                transformer_output = self.transformerlayers[i](transformer_output, time_matrix_K, time_matrix_V, src_key_padding_mask=mask)
+        else:
+            for i in range(len(self.transformerlayers)):
+                transformer_output = self.transformerlayers[i](transformer_output, src_key_padding_mask=mask)
         transformer_output = torch.flatten(transformer_output, start_dim=1)
 
         dnn_input = torch.cat((dnn_input, transformer_output), dim=1)

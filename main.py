@@ -48,7 +48,7 @@ def bundle_main(args, v_num, train_dataset, val_dataset, test_dataset):
                                auto_insert_metric_name=False)
     callback2 = EarlyStopping(monitor="val/auc",
                               mode="max",
-                              patience=5)
+                              patience=2)
     trainer = pl.Trainer(accelerator='gpu',
                          devices=1,
                          callbacks=[callback, callback2],
@@ -292,6 +292,7 @@ def run_bundle_main():
     parser.add_argument('--data_path', default="./data/bundle_time", type=str)
     parser.add_argument('--max_len', default=8, type=int)  # 最长序列长度
     parser.set_defaults(max_epochs=50)
+    parser.add_argument('--time_aware', default=True, type=bool)
     args = parser.parse_args()
 
     train_dataset = BundleDataset(os.path.join(args.data_path, "train_data.csv"), args.max_len)
@@ -307,18 +308,13 @@ def run_bundle_main():
     #             bundle_main(args, v_num, train_dataset, val_dataset, test_dataset)
 
     for seed in [0]:
-        for use_time, log_base in [(True, 10)]:
-            for use_int, int_num, embedding in [(True, -1, 8)]:
-                args.seed, args.log_base, args.int_num, args.use_time, args.use_int, args.embedding \
-                    = seed, log_base, int_num, use_time, use_int, embedding
-                bundle_main(args, v_num, train_dataset, val_dataset, test_dataset)
-
-    for seed in [0]:
-        for use_time, log_base in [(True, -2), (True, -3)]:
+        for use_time, log_base in [(False, 0)]:
             for use_int, int_num, embedding in [(False, 0, 9)]:
-                args.seed, args.log_base, args.int_num, args.use_time, args.use_int, args.embedding \
-                    = seed, log_base, int_num, use_time, use_int, embedding
-                bundle_main(args, v_num, train_dataset, val_dataset, test_dataset)
+                for lr in [1e-4, 1e-3]:
+                    args.seed, args.log_base, args.int_num, args.use_time, args.use_int, args.embedding, args.lr \
+                        = seed, log_base, int_num, use_time, use_int, embedding, lr
+                    bundle_main(args, f"time_aware 2400 {lr}", train_dataset, val_dataset, test_dataset)
+
 
 
 def run_ele_main():
@@ -336,6 +332,7 @@ def run_ele_main():
     parser.add_argument('--data_path', default="./data/ele_time", type=str)
     parser.add_argument('--max_len', default=51, type=int)
     parser.set_defaults(max_epochs=50)
+    parser.add_argument('--time_aware', default=True, type=bool)
     args = parser.parse_args()
 
     train_dataset = EleDataset(os.path.join(args.data_path, "train_data.csv"), args.max_len)
@@ -346,12 +343,12 @@ def run_ele_main():
 
     for seed in [0]:
         for transformer_num in [1]:
-            for use_time, log_base in [(True, 5), (False, 0)]:
-                for use_int, int_num in [(True, 1), (True, 2), (True, 3)]:
-                    for lr in [1e-5]:
+            for use_time, log_base in [(False, 0)]:
+                for use_int, int_num in [(False, 0)]:
+                    for lr in [1e-4, 1e-3]:
                         args.seed, args.transformer_num, args.log_base, args.int_num, args.use_time, args.use_int, args.lr \
                                 = seed, transformer_num, log_base, int_num, use_time, use_int, lr
-                        ele_main(args, f"lr=1e-5 mean_std=1 res=concat log_base={log_base} int_num={int_num}", train_dataset, val_dataset, test_dataset)
+                        ele_main(args, f"time_aware2400{lr}", train_dataset, val_dataset, test_dataset)
 
 
 def run_movie_main():
@@ -369,6 +366,7 @@ def run_movie_main():
     parser.add_argument('--data_path', default="./data/movielens1m", type=str)
     parser.add_argument('--max_len', default=8, type=int)
     parser.set_defaults(max_epochs=50)
+    parser.add_argument('--time_aware', default=True, type=bool)
     args = parser.parse_args()
 
     train_dataset = MovieDataset(os.path.join(args.data_path, "train_data.csv"), args.max_len)
@@ -377,20 +375,13 @@ def run_movie_main():
 
     v_num = None
 
-    for seed in [123456]:
+    for seed in [0, 2022, 123456]:
         for transformer_num in [1]:
             for use_time, log_base in [(False, 0)]:
-                for use_int, int_num in [(True, -1)]:
-                    args.seed, args.transformer_num, args.log_base, args.int_num, args.use_time, args.use_int \
-                        = seed, transformer_num, log_base, int_num, use_time, use_int
-                    movie_main(args, v_num, train_dataset, val_dataset, test_dataset)
-    for seed in [123456]:
-        for transformer_num in [1]:
-            for use_time, log_base in [(True, -2)]:
                 for use_int, int_num in [(False, 0)]:
                     args.seed, args.transformer_num, args.log_base, args.int_num, args.use_time, args.use_int \
                         = seed, transformer_num, log_base, int_num, use_time, use_int
-                    movie_main(args, v_num, train_dataset, val_dataset, test_dataset)
+                    movie_main(args, f"time_aware{seed}", train_dataset, val_dataset, test_dataset)
 
 
 def run_taobao_main():
@@ -408,6 +399,7 @@ def run_taobao_main():
     parser.add_argument('--data_path', default="./data/taobao", type=str)
     parser.add_argument('--max_len', default=20, type=int)
     parser.set_defaults(max_epochs=50)
+    parser.add_argument('--time_aware', default=True, type=bool)
     args = parser.parse_args()
 
     train_dataset = TaobaoDataset(os.path.join(args.data_path, "train_data.csv"), args.max_len)
@@ -415,12 +407,13 @@ def run_taobao_main():
     test_dataset = TaobaoDataset(os.path.join(args.data_path, "test_data.csv"), args.max_len, True)
     v_num = None
     for seed in [0]:
-        for use_time, log_base in [(True, -2)]:
+        for use_time, log_base in [(False, 0)]:
             for use_int, int_num in [(False, 0)]:
-                args.seed, args.log_base, args.use_time, args.use_int, args.int_num \
-                    = seed, log_base, use_time, use_int, int_num
-                taobao_main(args, v_num, train_dataset, val_dataset, test_dataset)
+                for lr in [1e-3, 1e-2]:
+                    args.seed, args.log_base, args.use_time, args.use_int, args.int_num, args.lr \
+                        = seed, log_base, use_time, use_int, int_num, lr
+                    taobao_main(args, f"time_aware2400{lr}", train_dataset, val_dataset, test_dataset)
 
 
 if __name__ == '__main__':
-    run_bundle_main()
+    run_taobao_main()
